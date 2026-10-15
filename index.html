@@ -569,17 +569,23 @@ function fmtMoney(n) {
   return "€" + Math.round(n);
 }
 
-function normCompany(s) {
-  return String(s || "").toLowerCase()
-    .replace(/\b(gmbh|bv|b\.v\.|nv|n\.v\.|sa|s\.a\.|srl|ltd|limited|ag|inc|ab|oy|as|spa|s\.p\.a\.|group|the)\b/g, "")
-    .replace(/[^a-z0-9]/g, "");
+const COMPANY_NOISE = new Set(["gmbh","bv","nv","sa","sas","srl","ltd","limited","ag","inc","ab","oy","as","spa","group","the","co","company","sl","plc"]);
+function companyTokens(s) {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ")
+    .filter(t => t && !COMPANY_NOISE.has(t));
 }
 function findLead(name) {
-  const n = normCompany(name);
-  if (n.length < 3) return null;
-  return allRows.find(r => normCompany(r.company) === n) ||
-         allRows.find(r => { const c = normCompany(r.company); return c.length >= 4 && (c.includes(n) || n.includes(c)); }) ||
-         null;
+  const a = companyTokens(name);
+  if (!a.length) return null;
+  const exact = allRows.find(r => companyTokens(r.company).join(" ") === a.join(" "));
+  if (exact) return exact;
+  // whole-word prefix match only, e.g. "Kreios Space" = "Kreios Space Europe"
+  return allRows.find(r => {
+    const b = companyTokens(r.company);
+    if (!b.length) return false;
+    const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+    return short.join("").length >= 4 && short.every((t, i) => long[i] === t);
+  }) || null;
 }
 
 function loadScript(src) {
