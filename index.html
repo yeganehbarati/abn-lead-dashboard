@@ -273,19 +273,23 @@
   .pipe-panel h2 { font-family: var(--font-heading); font-size: 1rem; color: var(--abn-navy); margin: 0 0 16px; display: flex; justify-content: space-between; align-items: center; }
   .pipe-btn { font-family: var(--font-body); font-size: 0.78rem; border: 1px solid #dde8ec; background: white; color: var(--abn-navy); border-radius: 14px; padding: 5px 12px; cursor: pointer; }
   .pipe-btn.primary { background: #6c5ce7; border-color: #6c5ce7; color: white; }
-  .pipe-row { display: grid; grid-template-columns: 1.4fr 0.8fr 0.9fr 2fr; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid #f1f4f6; font-size: 0.84rem; }
-  .pipe-row:last-child { border-bottom: none; }
-  .pipe-row.head { font-size: 0.72rem; color: var(--abn-muted); padding-top: 0; }
-  .pipe-name { color: var(--abn-navy); font-weight: 500; }
   .pipe-muted { color: var(--abn-muted); font-size: 0.78rem; }
-  .match-yes { color: #1f9d6b; font-size: 0.78rem; }
-  .match-no { color: #d9822b; font-size: 0.78rem; }
-  .pipe-src { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .pipe-src input { flex: 1; min-width: 140px; padding: 6px 9px; border: 1px solid #dde8ec; border-radius: 4px; font-family: var(--font-body); font-size: 0.8rem; color: var(--abn-navy); }
+  .pipe-stats { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+  .pipe-stat { border-radius: 10px; padding: 10px 16px; min-width: 120px; }
+  .pipe-stat b { display: block; font-family: var(--font-heading); font-size: 1.3rem; }
+  .pipe-stat span { font-size: 0.74rem; }
+  .pipe-stat.total { background: #eef4ff; color: #3b5bdb; }
+  .pipe-stat.auto { background: #fff0f4; color: #c9567c; }
+  .pipe-stat.manual { background: #f3f1fe; color: #6f63c9; }
+  .pipe-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+  .pipe-tile { border-radius: 8px; padding: 12px 14px; background: #fafbfd; border-left: 4px solid #c9cfd3; }
+  .pipe-tile.yeganeh { border-left-color: #ff6b9a; background: #fff7fa; }
+  .pipe-tile.olivier { border-left-color: #6c5ce7; background: #f8f7ff; }
+  .pipe-tile-name { color: var(--abn-navy); font-weight: 500; font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pipe-tile-meta { font-size: 0.74rem; color: var(--abn-muted); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   @media (max-width: 760px) {
     .pipe-section { padding: 0 16px; }
     .pipe-panel { padding: 24px 18px; }
-    .pipe-row { grid-template-columns: 1fr 1fr; }
   }
 
   .empty-state { padding: 40px 20px; text-align: center; color: var(--abn-muted); font-size: 0.88rem; grid-column: 1 / -1; }
@@ -607,35 +611,26 @@ function renderPipeline(err) {
   if (!pipelineProjects) { body.innerHTML = `<div class="pipe-muted">Loading…</div>`; return; }
   if (!pipelineProjects.length) { body.innerHTML = `<div class="pipe-muted">No projects in the pipeline.</div>`; return; }
 
-  const rows = pipelineProjects.map(p => {
-    const lead = findLead(p.name);
-    let srcHtml;
-    if (lead && lead.source) {
-      srcHtml = `<span class="src-tag ${lead.source.toLowerCase()}">${lead.source}</span>
-        <span class="pipe-muted">${escapeHtml(lead.campaign || "")}</span>`;
-    } else {
-      srcHtml = `<input type="text" data-id="${escapeAttr(p.id)}" value="${escapeAttr(p.leadSource || "")}" placeholder="Write the source…">
-        <button class="pipe-btn pipe-save" data-id="${escapeAttr(p.id)}">Save</button>`;
-    }
-    return `<div class="pipe-row">
-      <span class="pipe-name">${escapeHtml(p.name || "Unnamed")}</span>
-      <span class="pipe-muted">${escapeHtml(STAGE_LABELS[p.status] || p.status || "")}</span>
-      <span class="${lead ? "match-yes" : "match-no"}">${lead ? "In lead list" : "Not in lead list"}</span>
-      <span class="pipe-src">${srcHtml}</span>
-    </div>`;
-  }).join("");
-
-  body.innerHTML = `<div class="pipe-row head"><span>Client</span><span>Stage</span><span>Lead list</span><span>Source</span></div>` + rows;
-  body.querySelectorAll(".pipe-save").forEach(btn => {
-    btn.onclick = () => {
-      const input = body.querySelector(`input[data-id="${btn.dataset.id}"]`);
-      btn.disabled = true;
-      projectsRef.child(btn.dataset.id).update({ leadSource: input.value.trim() })
-        .then(() => { btn.textContent = "Saved"; })
-        .catch(e => { btn.textContent = "Error"; console.error(e); })
-        .finally(() => { setTimeout(() => { btn.disabled = false; btn.textContent = "Save"; }, 1500); });
-    };
-  });
+  const matched = pipelineProjects
+    .map(p => ({ p, lead: findLead(p.name) }))
+    .filter(x => x.lead);
+  if (!matched.length) { body.innerHTML = `<div class="pipe-muted">No pipeline clients found in the lead list.</div>`; return; }
+  const nAuto = matched.filter(x => x.lead.source === "Yeganeh").length;
+  const nManual = matched.filter(x => x.lead.source === "Olivier").length;
+  body.innerHTML = `
+    <div class="pipe-stats">
+      <div class="pipe-stat total"><b>${matched.length}</b><span>Pipeline clients from lead list</span></div>
+      <div class="pipe-stat auto"><b>${nAuto}</b><span>Automated activities</span></div>
+      <div class="pipe-stat manual"><b>${nManual}</b><span>Olivier's manual activities</span></div>
+    </div>
+    <div class="pipe-grid">${matched.map(({ p, lead }) => {
+      const src = lead.source === "Yeganeh" ? (lead.campaign || "Automated activities") : lead.source === "Olivier" ? "Olivier's manual activities" : "—";
+      return `<div class="pipe-tile ${(lead.source || "").toLowerCase()}">
+        <div class="pipe-tile-name" title="${escapeAttr(p.name || "")}">${escapeHtml(p.name || "Unnamed")}</div>
+        <div class="pipe-tile-meta">${escapeHtml(STAGE_LABELS[p.status] || p.status || "")}</div>
+        <div class="pipe-tile-meta" title="${escapeAttr(src)}">${escapeHtml(src)}</div>
+      </div>`;
+    }).join("")}</div>`;
 }
 
 /* ---------- Lead source ---------- */
