@@ -229,6 +229,41 @@
   }
   .badge.closed { color: var(--abn-gray); }
 
+  /* ---------- Source tags ---------- */
+  .company-row { grid-template-columns: 1fr auto auto auto; }
+  .src-tag {
+    font-family: var(--font-heading); font-size: 0.64rem; font-weight: 600;
+    padding: 2px 7px; border-radius: 9px; white-space: nowrap;
+  }
+  .src-tag.yeganeh { background: #e0f6fa; color: #00788b; }
+  .src-tag.olivier { background: #eef0f6; color: #4a5a7a; }
+  .src-tag.unknown { background: #f2f2f2; color: #9a9a9a; }
+
+  /* ---------- Source section ---------- */
+  .source-section { padding: 0 48px 8px; }
+  .source-panel {
+    background: white; border-radius: 6px; box-shadow: 0 2px 10px rgba(0,73,116,0.06);
+    padding: 26px 30px; display: grid; grid-template-columns: 220px 1fr; gap: 40px; align-items: start;
+  }
+  .source-panel h2 { font-family: var(--font-heading); font-size: 1rem; color: var(--abn-navy); margin: 0 0 14px; }
+  .source-ring { width: 200px; height: 200px; }
+  .source-legend { margin-top: 12px; font-size: 0.83rem; }
+  .source-legend div { display: flex; align-items: center; gap: 8px; padding: 3px 0; color: var(--abn-navy); }
+  .source-legend .sw { width: 10px; height: 10px; border-radius: 3px; }
+  .source-legend .v { margin-left: auto; font-family: var(--font-heading); font-weight: 600; }
+  .camp-row { display: grid; grid-template-columns: 210px 1fr 90px; gap: 12px; align-items: center; padding: 5px 0; font-size: 0.82rem; }
+  .camp-name { color: var(--abn-navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .camp-bar { background: #eef4f6; border-radius: 3px; height: 12px; overflow: hidden; }
+  .camp-bar span { display: block; height: 100%; background: var(--abn-teal); border-radius: 3px; }
+  .camp-val { text-align: right; color: var(--abn-muted); font-size: 0.76rem; }
+  .camp-val b { color: var(--abn-navy); font-family: var(--font-heading); }
+  .camp-note { font-size: 0.72rem; color: var(--abn-muted); margin-top: 10px; }
+  @media (max-width: 760px) {
+    .source-section { padding: 0 16px 8px; }
+    .source-panel { grid-template-columns: 1fr; }
+    .camp-row { grid-template-columns: 120px 1fr 70px; }
+  }
+
   .empty-state { padding: 40px 20px; text-align: center; color: var(--abn-muted); font-size: 0.88rem; grid-column: 1 / -1; }
 
 </style>
@@ -255,6 +290,20 @@
       <div class="legend-col">
         <h2>Share of leads <button class="clear-link" id="clearCountry" style="display:none;">Clear</button></h2>
         <div class="legend" id="legend"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="source-section">
+    <div class="source-panel">
+      <div>
+        <h2>Lead source</h2>
+        <svg class="source-ring" viewBox="0 0 200 200" id="sourceRing"></svg>
+        <div class="source-legend" id="sourceLegend"></div>
+      </div>
+      <div>
+        <h2>Yeganeh's leads by campaign</h2>
+        <div id="campaignBars"></div>
       </div>
     </div>
   </div>
@@ -378,7 +427,9 @@ function parseRows(rawRows) {
     company: headerCells.indexOf("company"),
     country: headerCells.indexOf("country"),
     weeks: headerCells.findIndex(c => c.startsWith("follow-up") && c.includes("week")),
-    status: headerCells.indexOf("status")
+    status: headerCells.indexOf("status"),
+    source: headerCells.indexOf("source"),
+    campaign: headerCells.findIndex(c => c.startsWith("campaign"))
   };
 
   const out = [];
@@ -391,7 +442,10 @@ function parseRows(rawRows) {
     const weeksRaw = idx.weeks >= 0 ? row[idx.weeks] : "";
     const status = idx.status >= 0 ? String(row[idx.status] || "").trim() : "";
     const phase = weeksToPhase(weeksRaw);
-    out.push({ company, country, phase, status: status || "—" });
+    const srcRaw = idx.source >= 0 ? String(row[idx.source] || "").trim().toLowerCase() : "";
+    const source = srcRaw.startsWith("yeganeh") ? "Yeganeh" : srcRaw.startsWith("olivier") ? "Olivier" : "";
+    const campaign = idx.campaign >= 0 ? String(row[idx.campaign] || "").trim() : "";
+    out.push({ company, country, phase, status: status || "—", source, campaign });
   }
   return dedupeByCompany(out);
 }
@@ -417,8 +471,13 @@ function dedupeByCompany(rows) {
     if (!best.has(key)) {
       best.set(key, r);
       order.push(key);
-    } else if (isBetterEntry(r, best.get(key))) {
-      best.set(key, r);
+    } else {
+      const prev = best.get(key);
+      const winner = isBetterEntry(r, prev) ? { ...r } : { ...prev };
+      const yRow = [r, prev].find(x => x.source === "Yeganeh");
+      if (yRow) { winner.source = "Yeganeh"; winner.campaign = winner.campaign || yRow.campaign; }
+      else if (!winner.source) winner.source = r.source || prev.source;
+      best.set(key, winner);
     }
   });
   return order.map(key => best.get(key));
@@ -449,7 +508,60 @@ function getCountryCounts() {
 
 function render() {
   renderRing();
+  renderSource();
   renderCards();
+}
+
+/* ---------- Lead source ---------- */
+const SOURCE_COLORS = { Yeganeh: "#00A9C4", Olivier: "#4a5a7a", Unassigned: "#c9cfd3" };
+function renderSource() {
+  const rows = filters.country ? allRows.filter(r => r.country === filters.country) : allRows;
+  const total = rows.length;
+  const counts = { Yeganeh: 0, Olivier: 0, Unassigned: 0 };
+  rows.forEach(r => { counts[r.source || "Unassigned"]++; });
+
+  const svg = document.getElementById("sourceRing");
+  const cx = 100, cy = 100, r = 80, strokeW = 28, circ = 2 * Math.PI * r;
+  let offset = 0, slices = "";
+  Object.entries(counts).forEach(([name, n]) => {
+    if (!n) return;
+    const dash = n / total * circ;
+    slices += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${SOURCE_COLORS[name]}" stroke-width="${strokeW}"
+      stroke-dasharray="${dash} ${circ - dash}" stroke-dashoffset="${-offset}" transform="rotate(-90 ${cx} ${cy})">
+      <title>${name}: ${n} (${(n / total * 100).toFixed(1)}%)</title></circle>`;
+    offset += dash;
+  });
+  const yPct = total ? Math.round(counts.Yeganeh / total * 100) : 0;
+  svg.innerHTML = slices +
+    `<text x="${cx}" y="${cy - 4}" text-anchor="middle" class="ring-center-num">${yPct}%</text>
+     <text x="${cx}" y="${cy + 16}" text-anchor="middle" class="ring-center-lbl">YEGANEH</text>`;
+
+  document.getElementById("sourceLegend").innerHTML = Object.entries(counts)
+    .filter(([name, n]) => n || name !== "Unassigned")
+    .map(([name, n]) => `<div><span class="sw" style="background:${SOURCE_COLORS[name]}"></span>${name}
+      <span class="v">${n} · ${total ? (n / total * 100).toFixed(1) : "0.0"}%</span></div>`).join("");
+
+  const yRows = rows.filter(x => x.source === "Yeganeh");
+  const camp = {};
+  yRows.forEach(x => {
+    const parts = x.campaign
+      ? x.campaign.replace(/Leadinfo \+ Crunchbase/gi, "Leadinfo & Crunchbase").split(" + ")
+          .map(p => p.trim().replace("Leadinfo & Crunchbase", "Leadinfo + Crunchbase")).filter(Boolean)
+      : ["No campaign listed"];
+    [...new Set(parts)].forEach(p => { camp[p] = (camp[p] || 0) + 1; });
+  });
+  const sortedCamp = Object.entries(camp).sort((a, b) => b[1] - a[1]);
+  const max = sortedCamp.length ? sortedCamp[0][1] : 1;
+  document.getElementById("campaignBars").innerHTML = sortedCamp.length
+    ? sortedCamp.map(([name, n]) => {
+        const pct = yRows.length ? n / yRows.length * 100 : 0;
+        return `<div class="camp-row">
+          <span class="camp-name" title="${escapeAttr(name)}">${escapeHtml(name)}</span>
+          <span class="camp-bar"><span style="width:${(n / max * 100).toFixed(1)}%"></span></span>
+          <span class="camp-val"><b>${pct.toFixed(1)}%</b> · ${n}</span>
+        </div>`;
+      }).join("")
+    : `<div class="camp-note">No Yeganeh leads${filters.country ? " in " + escapeHtml(filters.country) : ""}.</div>`;
 }
 
 /* ---------- Ring chart ---------- */
@@ -551,6 +663,9 @@ function renderCards() {
             : `<span class="badge closed">—</span>`;
           return `<div class="company-row">
             <span class="company-name" title="${escapeAttr(r.company)}">${escapeHtml(r.company)}</span>
+            ${r.source
+              ? `<span class="src-tag ${r.source.toLowerCase()}" title="${escapeAttr(r.campaign || r.source)}">${r.source}</span>`
+              : `<span class="src-tag unknown">—</span>`}
             <span class="company-status">${escapeHtml(r.status)}</span>
             ${phaseBadge}
           </div>`;
