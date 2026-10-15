@@ -235,15 +235,15 @@
     font-family: var(--font-heading); font-size: 0.64rem; font-weight: 600;
     padding: 2px 7px; border-radius: 9px; white-space: nowrap;
   }
-  .src-tag.yeganeh { background: #e0f6fa; color: #00788b; }
-  .src-tag.olivier { background: #eef0f6; color: #4a5a7a; }
+  .src-tag.yeganeh { background: #ffe3ec; color: #d63a6d; }
+  .src-tag.olivier { background: #ebe8fd; color: #5a4bd1; }
   .src-tag.unknown { background: #f2f2f2; color: #9a9a9a; }
 
   /* ---------- Source section ---------- */
-  .source-section { padding: 0 48px 8px; }
+  .source-section { max-width: 1120px; margin: 24px auto 0; padding: 0 48px; }
   .source-panel {
-    background: white; border-radius: 6px; box-shadow: 0 2px 10px rgba(0,73,116,0.06);
-    padding: 26px 30px; display: grid; grid-template-columns: 220px 1fr; gap: 40px; align-items: start;
+    background: white; border-radius: 8px; box-shadow: 0 4px 18px rgba(0,73,116,0.08);
+    padding: 36px 44px; display: grid; grid-template-columns: 220px 1fr; gap: 40px; align-items: start;
   }
   .source-panel h2 { font-family: var(--font-heading); font-size: 1rem; color: var(--abn-navy); margin: 0 0 14px; }
   .source-ring { width: 200px; height: 200px; }
@@ -254,12 +254,12 @@
   .camp-row { display: grid; grid-template-columns: 210px 1fr 90px; gap: 12px; align-items: center; padding: 5px 0; font-size: 0.82rem; }
   .camp-name { color: var(--abn-navy); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .camp-bar { background: #eef4f6; border-radius: 3px; height: 12px; overflow: hidden; }
-  .camp-bar span { display: block; height: 100%; background: var(--abn-teal); border-radius: 3px; }
+  .camp-bar span { display: block; height: 100%; border-radius: 3px; }
   .camp-val { text-align: right; color: var(--abn-muted); font-size: 0.76rem; }
   .camp-val b { color: var(--abn-navy); font-family: var(--font-heading); }
   .camp-note { font-size: 0.72rem; color: var(--abn-muted); margin-top: 10px; }
   @media (max-width: 760px) {
-    .source-section { padding: 0 16px 8px; }
+    .source-section { padding: 0 16px; }
     .source-panel { grid-template-columns: 1fr; }
     .camp-row { grid-template-columns: 120px 1fr 70px; }
   }
@@ -302,7 +302,7 @@
         <div class="source-legend" id="sourceLegend"></div>
       </div>
       <div>
-        <h2>Yeganeh's leads by campaign</h2>
+        <h2>Leads by campaign</h2>
         <div id="campaignBars"></div>
       </div>
     </div>
@@ -513,7 +513,7 @@ function render() {
 }
 
 /* ---------- Lead source ---------- */
-const SOURCE_COLORS = { Yeganeh: "#00A9C4", Olivier: "#4a5a7a", Unassigned: "#c9cfd3" };
+const SOURCE_COLORS = { Yeganeh: "#ff6b9a", Olivier: "#6c5ce7", Unassigned: "#c9cfd3" };
 function renderSource() {
   const rows = filters.country ? allRows.filter(r => r.country === filters.country) : allRows;
   const total = rows.length;
@@ -534,7 +534,7 @@ function renderSource() {
   const yPct = total ? Math.round(counts.Yeganeh / total * 100) : 0;
   svg.innerHTML = slices +
     `<text x="${cx}" y="${cy - 4}" text-anchor="middle" class="ring-center-num">${yPct}%</text>
-     <text x="${cx}" y="${cy + 16}" text-anchor="middle" class="ring-center-lbl">YEGANEH</text>`;
+     <text x="${cx}" y="${cy + 16}" text-anchor="middle" class="ring-center-lbl">CAMPAIGNS</text>`;
 
   document.getElementById("sourceLegend").innerHTML = Object.entries(counts)
     .filter(([name, n]) => n || name !== "Unassigned")
@@ -553,11 +553,11 @@ function renderSource() {
   const sortedCamp = Object.entries(camp).sort((a, b) => b[1] - a[1]);
   const max = sortedCamp.length ? sortedCamp[0][1] : 1;
   document.getElementById("campaignBars").innerHTML = sortedCamp.length
-    ? sortedCamp.map(([name, n]) => {
+    ? sortedCamp.map(([name, n], i) => {
         const pct = yRows.length ? n / yRows.length * 100 : 0;
         return `<div class="camp-row">
           <span class="camp-name" title="${escapeAttr(name)}">${escapeHtml(name)}</span>
-          <span class="camp-bar"><span style="width:${(n / max * 100).toFixed(1)}%"></span></span>
+          <span class="camp-bar"><span style="width:${(n / max * 100).toFixed(1)}%;background:${countryColor(i)}"></span></span>
           <span class="camp-val"><b>${pct.toFixed(1)}%</b> · ${n}</span>
         </div>`;
       }).join("")
