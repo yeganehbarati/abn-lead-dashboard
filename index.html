@@ -230,7 +230,14 @@
   .badge.closed { color: var(--abn-gray); }
 
   /* ---------- Source tags ---------- */
-  .company-row { grid-template-columns: 1fr auto auto auto; }
+  .company-row { grid-template-columns: 1fr auto auto auto auto; }
+  .company-country { color: var(--abn-muted); font-size: 0.7rem; }
+  .closed-card .company-name { color: var(--abn-muted); }
+  .days-tag { font-size: 0.66rem; white-space: nowrap; padding: 1px 6px; border-radius: 8px; }
+  .days-tag.ok { color: #2e8b57; background: #eaf7ef; }
+  .days-tag.soon { color: #c77700; background: #fff3e0; }
+  .days-tag.late { color: #d64545; background: #fdecec; }
+  .days-tag.none { color: var(--abn-gray); }
   .src-tag {
     font-family: var(--font-body); font-size: 0.66rem; font-weight: 400;
     padding: 2px 7px; border-radius: 9px; white-space: nowrap;
@@ -257,6 +264,11 @@
   .camp-bar span { display: block; height: 100%; border-radius: 3px; }
   .camp-val { text-align: right; color: var(--abn-muted); font-size: 0.76rem; }
   .camp-val b { color: var(--abn-navy); font-family: var(--font-heading); }
+  .camp-sub { font-size: 0.74rem; color: var(--abn-muted); padding: 1px 0 1px 14px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .camp-sub-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; opacity: .7; }
+  .camp-sub-v { color: var(--abn-navy); }
+  .camp-sub-kw { color: var(--abn-muted); font-size: 0.7rem; margin-left: 4px; }
+  .camp-sub:last-of-type { margin-bottom: 4px; }
   .camp-note { font-size: 0.72rem; color: var(--abn-muted); margin-top: 10px; }
   @media (max-width: 760px) {
     .source-section { padding: 0 16px; }
@@ -446,6 +458,17 @@ async function fetchSheet() {
   }
 }
 
+function calcDaysLeft(daysVal) {
+  const n = parseInt(String(daysVal ?? "").replace(/[^\d-]/g, ""), 10);
+  return isNaN(n) ? null : n;
+}
+function daysBadge(n) {
+  if (n === null || n === undefined) return `<span class="days-tag none">—</span>`;
+  if (n < 0) return `<span class="days-tag late" title="Follow-up overdue">${-n}d overdue</span>`;
+  if (n === 0) return `<span class="days-tag soon">Due today</span>`;
+  return `<span class="days-tag ${n <= 14 ? "soon" : "ok"}" title="Days until follow-up">${n}d left</span>`;
+}
+
 function parseRows(rawRows) {
   const norm = s => String(s).trim().toLowerCase();
 
@@ -464,7 +487,10 @@ function parseRows(rawRows) {
     weeks: headerCells.findIndex(c => c.startsWith("follow-up") && c.includes("week")),
     status: headerCells.indexOf("status"),
     source: headerCells.indexOf("source"),
-    campaign: headerCells.findIndex(c => c.startsWith("campaign"))
+    campaign: headerCells.findIndex(c => c.startsWith("campaign")),
+    liSource: headerCells.findIndex(c => c.startsWith("leadinfo source")),
+    fuDate: headerCells.findIndex(c => c.startsWith("follow-up") && c.includes("date")),
+    daysDue: headerCells.findIndex(c => c.startsWith("days until"))
   };
 
   const out = [];
@@ -480,7 +506,9 @@ function parseRows(rawRows) {
     const srcRaw = idx.source >= 0 ? String(row[idx.source] || "").trim().toLowerCase() : "";
     const source = srcRaw.startsWith("yeganeh") ? "Yeganeh" : srcRaw.startsWith("olivier") ? "Olivier" : "";
     const campaign = idx.campaign >= 0 ? String(row[idx.campaign] || "").trim() : "";
-    out.push({ company, country, phase, status: status || "—", source, campaign });
+    const liSource = idx.liSource >= 0 ? String(row[idx.liSource] || "").trim() : "";
+    const daysLeft = calcDaysLeft(idx.daysDue >= 0 ? row[idx.daysDue] : "");
+    out.push({ company, country, phase, status: status || "—", source, campaign, liSource, daysLeft });
   }
   return dedupeByCompany(out);
 }
@@ -512,6 +540,7 @@ function dedupeByCompany(rows) {
       const yRow = [r, prev].find(x => x.source === "Yeganeh");
       if (yRow) { winner.source = "Yeganeh"; winner.campaign = winner.campaign || yRow.campaign; }
       else if (!winner.source) winner.source = r.source || prev.source;
+      winner.liSource = winner.liSource || r.liSource || prev.liSource;
       best.set(key, winner);
     }
   });
@@ -675,6 +704,29 @@ function campaignGroup(name) {
   if (n.startsWith("archived sequence") || n === "manual email" || n.startsWith("htce")) return "Other campaigns";
   return name;
 }
+function liCategory(v) {
+  const s = (v || "").toLowerCase();
+  if (!s) return "";
+  if (s.includes("crunchbase")) return "Crunchbase";
+  if (s.includes("blog") || /[-–—]\s*ga\s*$/.test(s)) return "Blog post";
+  if (s.startsWith("direct")) return "Direct";
+  if (s.includes("organic")) return "Organic";
+  if (s.includes("google ads")) return "Google Ads";
+  return "Other";
+}
+function liBreakdownHtml(rows, color) {
+  const lc = rows.filter(x => /leadinfo/i.test(x.campaign || ""));
+  if (!lc.length) return "";
+  const cb = lc.filter(x => liCategory(x.liSource) === "Crunchbase").length;
+  const liRows = lc.filter(x => liCategory(x.liSource) !== "Crunchbase");
+  const kw = {};
+  liRows.forEach(x => { const k = liCategory(x.liSource) || "Not found"; kw[k] = (kw[k] || 0) + 1; });
+  const kwTxt = Object.entries(kw).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${escapeHtml(k)} ${n}`).join(" · ");
+  const pct = n => (n / lc.length * 100).toFixed(0);
+  return `<div class="camp-sub"><span class="camp-sub-dot" style="background:${color}"></span>Crunchbase <span class="camp-sub-v">${pct(cb)}% · ${cb}</span></div>
+    <div class="camp-sub"><span class="camp-sub-dot" style="background:${color}"></span>Leadinfo <span class="camp-sub-v">${pct(liRows.length)}% · ${liRows.length}</span>
+      <span class="camp-sub-kw">${kwTxt}</span></div>`;
+}
 const SOURCE_LABELS = { Yeganeh: "Automated activities", Olivier: "Olivier's manual activities", Unassigned: "Unassigned" };
 const SOURCE_COLORS = { Yeganeh: "#ff6b9a", Olivier: "#6c5ce7", Unassigned: "#c9cfd3" };
 function renderSource() {
@@ -724,7 +776,7 @@ function renderSource() {
           <span class="camp-name" title="${escapeAttr(name)}">${escapeHtml(name)}</span>
           <span class="camp-bar"><span style="width:${(n / max * 100).toFixed(1)}%;background:${countryColor(i)}"></span></span>
           <span class="camp-val"><b>${pct.toFixed(1)}%</b> · ${n}</span>
-        </div>`;
+        </div>${name === "Leadinfo + Crunchbase" ? liBreakdownHtml(yRows, countryColor(i)) : ""}`;
       }).join("")
     : `<div class="camp-note">No Yeganeh leads${filters.country ? " in " + escapeHtml(filters.country) : ""}.</div>`;
 }
@@ -790,6 +842,21 @@ function renderLegend(sorted, total) {
 }
 
 /* ---------- Country cards ---------- */
+function isClosed(r) { return String(r.status || "").trim().toLowerCase() === "closed"; }
+function companyRowHtml(r, extra) {
+  const phaseBadge = r.phase !== null
+    ? `<span class="badge" style="color:${PHASE_COLORS[r.phase]}">Phase ${r.phase}</span>`
+    : `<span class="badge closed">—</span>`;
+  return `<div class="company-row">
+    <span class="company-name" title="${escapeAttr(r.company)}">${escapeHtml(r.company)}${extra ? ` <span class="company-country">· ${escapeHtml(extra)}</span>` : ""}</span>
+    ${r.source
+      ? `<span class="src-tag ${r.source.toLowerCase()}" title="${escapeAttr(r.campaign || r.source)}">${r.source}</span>`
+      : `<span class="src-tag unknown">—</span>`}
+    <span class="company-status">${escapeHtml(r.status)}</span>
+    ${phaseBadge}
+    ${daysBadge(r.daysLeft)}
+  </div>`;
+}
 function renderCards() {
   const sorted = getCountryCounts();
   const search = filters.search.toLowerCase();
@@ -803,7 +870,7 @@ function renderCards() {
   visibleCountries.forEach(([country], i) => {
     const countryMatches = !search || country.toLowerCase().includes(search);
     const companies = allRows.filter(r =>
-      r.country === country && (countryMatches || r.company.toLowerCase().includes(search))
+      r.country === country && !isClosed(r) && (countryMatches || r.company.toLowerCase().includes(search))
     );
     if (!companies.length) return;
     totalVisible += companies.length;
@@ -822,30 +889,37 @@ function renderCards() {
         <span class="card-count">${companies.length}</span>
       </div>
       <div class="card-body">
-        ${companies.map(r => {
-          const phaseBadge = r.phase !== null
-            ? `<span class="badge" style="color:${PHASE_COLORS[r.phase]}">Phase ${r.phase}</span>`
-            : `<span class="badge closed">—</span>`;
-          return `<div class="company-row">
-            <span class="company-name" title="${escapeAttr(r.company)}">${escapeHtml(r.company)}</span>
-            ${r.source
-              ? `<span class="src-tag ${r.source.toLowerCase()}" title="${escapeAttr(r.campaign || r.source)}">${r.source}</span>`
-              : `<span class="src-tag unknown">—</span>`}
-            <span class="company-status">${escapeHtml(r.status)}</span>
-            ${phaseBadge}
-          </div>`;
-        }).join("")}
+        ${companies.map(r => companyRowHtml(r)).join("")}
       </div>
     `;
     container.appendChild(card);
   });
+
+  const closedRows = allRows.filter(r => isClosed(r) && (!filters.country || r.country === filters.country) &&
+    (!search || r.company.toLowerCase().includes(search) || r.country.toLowerCase().includes(search)));
+  if (closedRows.length) {
+    totalVisible += closedRows.length;
+    const card = document.createElement("div");
+    card.className = "country-card closed-card";
+    card.style.borderTopColor = "#9aa5ab";
+    card.innerHTML = `
+      <div class="card-header">
+        <div class="card-title">
+          <span class="card-swatch" style="background:#9aa5ab"></span>
+          <span class="card-name">Closed</span>
+        </div>
+        <span class="card-count">${closedRows.length}</span>
+      </div>
+      <div class="card-body">${closedRows.map(r => companyRowHtml(r, r.country)).join("")}</div>`;
+    container.appendChild(card);
+  }
 
   document.getElementById("resultsMeta").textContent =
     filters.country
       ? `${totalVisible} companies in ${filters.country}`
       : `${totalVisible} of ${allRows.length} companies across ${countriesShown} countries`;
 
-  if (!countriesShown) {
+  if (!countriesShown && !closedRows.length) {
     container.innerHTML = `<div class="empty-state">No companies match these filters.</div>`;
   }
 }
