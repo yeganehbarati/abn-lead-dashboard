@@ -303,6 +303,17 @@
 
   .empty-state { padding: 40px 20px; text-align: center; color: var(--abn-muted); font-size: 0.88rem; grid-column: 1 / -1; }
 
+
+  /* ---------- Report modal ---------- */
+  .rep-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.55); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+  .rep-overlay.open { display: flex; }
+  .rep-box { background: #fff; border-radius: 14px; width: min(780px, 100%); max-height: 92vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+  .rep-bar { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid #eef2f4; flex-wrap: wrap; }
+  .rep-bar h3 { margin: 0 auto 0 0; font-family: var(--font-heading); font-size: 1rem; color: var(--abn-navy); }
+  .rep-bar select, .rep-bar button { font-family: var(--font-body); font-size: .82rem; border-radius: 8px; padding: 7px 12px; border: 1px solid #d5dee3; background: #fff; color: var(--abn-navy); cursor: pointer; }
+  .rep-bar .rep-send { background: #ec4899; border-color: #ec4899; color: #fff; }
+  .rep-bar .rep-send:hover { background: #db2777; }
+  .rep-frame { border: 0; width: 100%; flex: 1; min-height: 70vh; background: #f1f5f9; }
 </style>
 </head>
 <body>
@@ -313,12 +324,25 @@
       <div class="sync">
         <span class="dot" id="syncDot"></span>
         <span id="syncLabel">Connecting…</span>
+        <button id="reportBtn">Report</button>
         <button id="refreshBtn">Refresh</button>
       </div>
     </div>
     <h1>Lead Pipeline by Country</h1>
   </header>
 
+
+  <div class="rep-overlay" id="repOverlay">
+    <div class="rep-box">
+      <div class="rep-bar">
+        <h3>Monthly report</h3>
+        <select id="repMonth"></select>
+        <button class="rep-send" id="repSend">Send to my email</button>
+        <button id="repClose">Close</button>
+      </div>
+      <iframe class="rep-frame" id="repFrame"></iframe>
+    </div>
+  </div>
   <div class="error-banner" id="errorBanner"></div>
 
   <div class="ring-section">
@@ -445,6 +469,7 @@ async function fetchSheet() {
     const rows = parseRows(data.rows || []);
     if (rows.length) {
       allRows = rows;
+      window.__rawRows = data.rows;
       try { localStorage.setItem(CACHE_KEY, JSON.stringify(data.rows)); } catch (e) {}
       setSyncState("live");
       hideError();
@@ -936,13 +961,199 @@ document.getElementById("refreshBtn").addEventListener("click", fetchSheet);
 const CACHE_KEY = "abnLeadRowsCache";
 try {
   const cached = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
-  if (cached) { allRows = parseRows(cached); if (allRows.length) render(); }
+  if (cached) { window.__rawRows = cached; allRows = parseRows(cached); if (allRows.length) render(); }
 } catch (e) {}
 fetchSheet();
 setInterval(fetchSheet, REFRESH_MS);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) fetchSheet(); });
 </script>
 
+
+<script>
+/* ---------- Monthly report (same logic & design as the email) ---------- */
+const REPORT_SEND_URL = "https://script.google.com/macros/s/AKfycbzmSGue0H8BoFVD6t4rn7uNc5Fji1w3DKd5QQ1JUEV6DUyG10XEkBH7PZmSMyCEhkjVFQ/exec";
+const Utilities = { formatDate: d => d.toLocaleString("en-GB", { month: "long", year: "numeric" }) };
+const Session = { getScriptTimeZone: () => "" };
+/* ---------- data ---------- */
+function parseDate_(v) {
+  if (v instanceof Date && !isNaN(v)) return v;
+  var s = String(v || "").trim();
+  var m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) return new Date(+m[3], +m[2] - 1, +m[1]);
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s) && !isNaN(Date.parse(s))) return new Date(s);
+  return null;
+}
+
+function buildLeadReport_(rows, now) {
+  var hi = -1, h = null;
+  for (var i = 0; i < rows.length; i++) {
+    var c = rows[i].map(function (x) { return String(x).trim().toLowerCase(); });
+    if (c.indexOf("company") >= 0 && c.indexOf("country") >= 0) { hi = i; h = c; break; }
+  }
+  if (hi < 0) return null;
+  var ix = {
+    company: h.indexOf("company"), country: h.indexOf("country"),
+    date: h.indexOf("date added"), status: h.indexOf("status"), source: h.indexOf("source")
+  };
+
+  // One entry per company: earliest date added, Yeganeh wins as source, closed only if every row is closed.
+  var map = {};
+  for (var j = hi + 1; j < rows.length; j++) {
+    var row = rows[j];
+    var company = String(row[ix.company] || "").trim();
+    var country = String(row[ix.country] || "").trim();
+    if (!company || !country) continue;
+    var key = company.toLowerCase();
+    var d = parseDate_(row[ix.date]);
+    var src = String(row[ix.source] || "").trim().toLowerCase().indexOf("yeganeh") === 0 ? "Yeganeh" : "Olivier";
+    var closed = String(row[ix.status] || "").trim().toLowerCase() === "closed";
+    var e = map[key];
+    if (!e) { map[key] = { country: country, date: d, source: src, closed: closed }; continue; }
+    if (d && (!e.date || d < e.date)) e.date = d;
+    if (src === "Yeganeh") e.source = "Yeganeh";
+    if (!closed) e.closed = false;
+  }
+
+  var endCur = new Date(now.getFullYear(), now.getMonth(), 1);       // start of this month = end of report month
+  var endPrev = new Date(now.getFullYear(), now.getMonth() - 1, 1);  // end of month before
+  var endPrev2 = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+  var monthLabel = Utilities.formatDate(endPrev, Session.getScriptTimeZone(), "MMMM yyyy");
+  var prevLabel = Utilities.formatDate(endPrev2, Session.getScriptTimeZone(), "MMMM yyyy");
+
+  var countries = {}, t = { total: 0, prev: 0, newCur: 0, newPrev: 0, y: 0, o: 0, yNew: 0, oNew: 0, yPrev: 0, oPrev: 0 };
+  Object.keys(map).forEach(function (k) {
+    var e = map[k];
+    if (e.closed || !e.date) return;
+    var c = countries[e.country] || (countries[e.country] = { name: e.country, total: 0, prev: 0, y: 0, o: 0, newCur: 0, newPrev: 0 });
+    var y = e.source === "Yeganeh";
+    if (e.date < endCur) { c.total++; t.total++; y ? (c.y++, t.y++) : (c.o++, t.o++); }
+    if (e.date < endPrev) { c.prev++; t.prev++; y ? t.yPrev++ : t.oPrev++; }
+    if (e.date >= endPrev && e.date < endCur) { c.newCur++; t.newCur++; y ? t.yNew++ : t.oNew++; }
+    if (e.date >= endPrev2 && e.date < endPrev) { c.newPrev++; t.newPrev++; }
+  });
+
+  var list = Object.keys(countries).map(function (k) { var c = countries[k]; c.delta = c.total - c.prev; return c; })
+    .filter(function (c) { return c.total > 0; })
+    .sort(function (a, b) { return b.total - a.total || b.delta - a.delta; });
+
+  return {
+    monthLabel: monthLabel, prevLabel: prevLabel, list: list,
+    total: t.total, prev: t.prev, totalDelta: t.total - t.prev,
+    newCur: t.newCur, newPrev: t.newPrev, y: t.y, o: t.o, yNew: t.yNew, oNew: t.oNew, yPrev: t.yPrev, oPrev: t.oPrev,
+    analysis: buildAnalysis_(list, t)
+  };
+}
+
+function buildAnalysis_(list, t) {
+  var out = [];
+  var mom = t.newPrev ? Math.round((t.newCur - t.newPrev) / t.newPrev * 100) : null;
+  if (t.newCur === 0) out.push("No new leads were added this month.");
+  else out.push("<b>" + t.newCur + " new leads</b> this month" +
+    (mom === null ? "." : mom === 0 ? " — the same as the month before." : (mom > 0 ? " — <b style='color:#16a34a'>" + mom + "% more</b>" : " — <b style='color:#dc2626'>" + Math.abs(mom) + "% fewer</b>") + " than the month before (" + t.newPrev + ")."));
+
+  if (t.newCur) {
+    var yShare = Math.round(t.yNew / t.newCur * 100);
+    out.push("New leads came <b style='color:#db2777'>" + yShare + "% from Yeganeh</b> (" + t.yNew + ") and <b style='color:#6d28d9'>" + (100 - yShare) + "% from Olivier</b> (" + t.oNew + ").");
+  }
+  var growers = list.filter(function (c) { return c.newCur > 0; }).sort(function (a, b) { return b.newCur - a.newCur; });
+  if (growers.length) out.push("Biggest growth: <b>" + growers.slice(0, 3).map(function (c) { return c.name + " (+" + c.newCur + ")"; }).join(", ") + "</b>.");
+  var fresh = list.filter(function (c) { return c.prev === 0 && c.total > 0; });
+  if (fresh.length) out.push("New countries in the pipeline: <b>" + fresh.map(function (c) { return c.name; }).join(", ") + "</b>.");
+  var stalled = list.filter(function (c) { return c.newPrev > 0 && c.newCur === 0; });
+  if (stalled.length) out.push("Slowed down (new leads last month, none this month): <b>" + stalled.slice(0, 5).map(function (c) { return c.name; }).join(", ") + "</b>.");
+  if (list.length) {
+    var top3 = list.slice(0, 3).reduce(function (s, c) { return s + c.total; }, 0);
+    out.push("Top 3 countries hold <b>" + Math.round(top3 / t.total * 100) + "%</b> of all potential leads (" + list.slice(0, 3).map(function (c) { return c.name; }).join(", ") + ").");
+  }
+  return out;
+}
+
+/* ---------- email ---------- */
+function fmtDelta_(n) { return n > 0 ? "+" + n : n < 0 ? "−" + Math.abs(n) : "±0"; }
+
+function renderLeadReport_(r) {
+  var font = "font-family:Segoe UI,Arial,sans-serif;";
+  var palette = ["#ef4444", "#22c55e", "#8b5cf6", "#eab308", "#06b6d4", "#ec4899", "#84cc16", "#6366f1", "#f97316", "#14b8a6"];
+  var max = r.list.length ? r.list[0].total : 1;
+
+  function kpi(label, value, sub, color) {
+    return "<td style='padding:6px;width:25%'><div style='background:" + color + ";border-radius:12px;padding:14px 12px;color:#fff;" + font + "'>" +
+      "<div style='font-size:12px;opacity:.9'>" + label + "</div>" +
+      "<div style='font-size:26px;font-weight:700;line-height:1.2'>" + value + "</div>" +
+      "<div style='font-size:12px;opacity:.9'>" + sub + "</div></div></td>";
+  }
+  function deltaPill(n) {
+    var bg = n > 0 ? "#dcfce7" : n < 0 ? "#fee2e2" : "#f1f5f9", fg = n > 0 ? "#15803d" : n < 0 ? "#b91c1c" : "#64748b";
+    var arrow = n > 0 ? "▲ " : n < 0 ? "▼ " : "";
+    return "<span style='background:" + bg + ";color:" + fg + ";border-radius:10px;padding:2px 8px;font-size:12px;font-weight:600'>" + arrow + fmtDelta_(n) + "</span>";
+  }
+
+  var yPct = r.total ? Math.round(r.y / r.total * 100) : 0;
+  var html = "<div style='background:#f1f5f9;padding:24px;" + font + "'><div style='max-width:680px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden'>" +
+    "<div style='background:linear-gradient(135deg,#004974,#1893A5 55%,#00C7E5);padding:22px 24px;color:#fff'>" +
+    "<div style='font-size:13px;opacity:.85'>ABN Lead Tracker · Monthly report</div>" +
+    "<div style='font-size:24px;font-weight:700'>" + r.monthLabel + "</div>" +
+    "<div style='font-size:13px;opacity:.85'>Compared with " + r.prevLabel + "</div></div>" +
+    "<div style='padding:14px 18px 4px'><table style='width:100%;border-collapse:collapse'><tr>" +
+    kpi("Potential leads", r.total, fmtDelta_(r.totalDelta) + " vs last month", "#0ea5e9") +
+    kpi("New this month", r.newCur, r.newPrev + " the month before", r.newCur >= r.newPrev ? "#22c55e" : "#f97316") +
+    kpi("Yeganeh", r.y, yPct + "% of all", "#ec4899") +
+    kpi("Olivier", r.o, (100 - yPct) + "% of all", "#8b5cf6") +
+    "</tr></table></div>";
+
+  html += "<div style='padding:10px 24px'><div style='font-size:16px;font-weight:700;color:#0f172a;margin-bottom:8px'>What happened</div>" +
+    "<ul style='margin:0;padding-left:18px;color:#334155;font-size:14px;line-height:1.7'>" +
+    r.analysis.map(function (a) { return "<li>" + a + "</li>"; }).join("") + "</ul></div>";
+
+  html += "<div style='padding:10px 24px 24px'><div style='font-size:16px;font-weight:700;color:#0f172a;margin-bottom:8px'>Leads by country</div>" +
+    "<table style='width:100%;border-collapse:collapse;font-size:13px;color:#334155'>" +
+    "<tr style='color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.4px'>" +
+    "<td style='padding:6px 4px'>Country</td><td style='padding:6px 4px;width:34%'></td>" +
+    "<td style='padding:6px 4px;text-align:right'>Leads</td>" +
+    "<td style='padding:6px 4px;text-align:right;color:#db2777'>Yeganeh</td>" +
+    "<td style='padding:6px 4px;text-align:right;color:#6d28d9'>Olivier</td>" +
+    "<td style='padding:6px 4px;text-align:right'>vs last month</td></tr>";
+  r.list.forEach(function (c, i) {
+    var col = palette[i % palette.length];
+    var w = Math.max(3, Math.round(c.total / max * 100));
+    var yw = c.total ? Math.round(c.y / c.total * w) : 0;
+    html += "<tr style='border-top:1px solid #f1f5f9'>" +
+      "<td style='padding:7px 4px;font-weight:600;color:#0f172a'><span style='display:inline-block;width:9px;height:9px;border-radius:50%;background:" + col + ";margin-right:6px'></span>" + c.name + "</td>" +
+      "<td style='padding:7px 4px'><div style='background:#f1f5f9;border-radius:6px;height:10px;width:100%'>" +
+      "<div style='height:10px;width:" + w + "%;border-radius:6px;background:linear-gradient(90deg,#ec4899 " + (w ? Math.round(yw / w * 100) : 0) + "%,#8b5cf6 " + (w ? Math.round(yw / w * 100) : 0) + "%)'></div></div></td>" +
+      "<td style='padding:7px 4px;text-align:right;font-weight:700;color:#0f172a'>" + c.total + "</td>" +
+      "<td style='padding:7px 4px;text-align:right;color:#db2777'>" + c.y + "</td>" +
+      "<td style='padding:7px 4px;text-align:right;color:#6d28d9'>" + c.o + "</td>" +
+      "<td style='padding:7px 4px;text-align:right'>" + deltaPill(c.delta) + "</td></tr>";
+  });
+  html += "</table><div style='font-size:11px;color:#94a3b8;margin-top:10px'>Bar colours: <span style='color:#db2777'>■ Yeganeh</span> &nbsp; <span style='color:#6d28d9'>■ Olivier</span>. Closed leads are not counted.</div></div>" +
+    "</div></div>";
+  return html;
+}
+
+(function () {
+  const ov = document.getElementById("repOverlay"), sel = document.getElementById("repMonth"), frame = document.getElementById("repFrame");
+  const now = new Date();
+  for (let i = 1; i <= 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const v = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+    sel.add(new Option(d.toLocaleString("en-GB", { month: "long", year: "numeric" }), v));
+  }
+  function show() {
+    const [y, m] = sel.value.split("-").map(Number);
+    const r = buildLeadReport_(window.__rawRows || [], new Date(y, m, 1));
+    frame.srcdoc = r ? "<!doctype html><meta charset='utf-8'><body style='margin:0'>" + renderLeadReport_(r) + "</body>"
+                     : "<p style='font-family:sans-serif;padding:30px'>No data loaded yet — try again in a moment.</p>";
+  }
+  document.getElementById("reportBtn").addEventListener("click", () => { ov.classList.add("open"); show(); });
+  sel.addEventListener("change", show);
+  document.getElementById("repClose").addEventListener("click", () => ov.classList.remove("open"));
+  ov.addEventListener("click", e => { if (e.target === ov) ov.classList.remove("open"); });
+  document.getElementById("repSend").addEventListener("click", () => {
+    window.open(REPORT_SEND_URL + "?month=" + encodeURIComponent(sel.value), "_blank");
+  });
+})();
+</script>
 <script>
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(()=>{}));
