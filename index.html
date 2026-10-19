@@ -985,15 +985,15 @@ function parseDate_(v) {
 }
 
 /* Lead sources: from the "Leadinfo Source" column, else Yeganeh = Campaigns, Olivier = Manual. */
-var SOURCE_ORDER_ = ["Crunchbase", "Google Ads", "Blog post", "Campaigns", "Direct & Organic", "Manual"];
+var SOURCE_ORDER_ = ["Crunchbase", "Google Ads", "Blog post", "Campaigns", "Organic", "Manual"];
 var SOURCE_COLORS_ = { "Crunchbase": "#dc2626", "Google Ads": "#22c55e", "Blog post": "#f97316", "Campaigns": "#ec4899",
-  "Direct & Organic": "#0ea5e9", "Manual": "#7c5ce6" };
+  "Organic": "#0ea5e9", "Manual": "#7c5ce6" };
 function sourceCat_(e) {
   var li = String(e.li || "").toLowerCase();
   if (li.indexOf("crunchbase") >= 0) return "Crunchbase";
   if (li.indexOf("google ads") >= 0) return "Google Ads";
   if (li.indexOf("blog") >= 0 || /[-\u2013\u2014]\s*ga\s*$/.test(li)) return "Blog post";
-  if (li.indexOf("direct") === 0 || li.indexOf("organic") >= 0) return "Direct & Organic";
+  if (li.indexOf("direct") === 0 || li.indexOf("organic") >= 0) return "Organic";
   return e.source === "Yeganeh" ? "Campaigns" : "Manual";
 }
 
