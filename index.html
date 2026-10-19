@@ -1091,15 +1091,11 @@ function renderLeadReport_(r) {
 
   // 2. Lead sources per country
   html += "<div style='padding:18px 24px 24px'><div style='font-size:16px;font-weight:700;color:#0f172a;margin-bottom:6px'>Lead sources per country</div>" +
-    "<table style='width:100%;border-collapse:collapse;color:#334155'><tr><td style='" + th + "'>Country</td><td style='" + th + "width:34%'></td>" +
+    "<table style='width:100%;border-collapse:collapse;color:#334155'><tr><td style='" + th + "'>Country</td>" +
     SOURCE_ORDER_.map(function (k) { return "<td style='" + th + "text-align:right;color:" + SOURCE_COLORS_[k] + "'>" + k + "</td>"; }).join("") + "</tr>";
   r.list.forEach(function (c) {
     html += "<tr style='border-top:1px solid #f1f5f9'><td style='" + td + "font-weight:600;color:#0f172a;white-space:nowrap'>" + c.name +
       " <span style='color:#94a3b8;font-weight:400;font-size:12px'>" + c.total + "</span></td>" +
-      "<td style='" + td + "'><table style='width:100%;border-collapse:collapse'><tr>" +
-      SOURCE_ORDER_.filter(function (k) { return c.src[k]; }).map(function (k) {
-        return "<td style='height:8px;padding:0;font-size:0;line-height:0;width:" + (c.src[k] / c.total * 100).toFixed(1) + "%;background:" + SOURCE_COLORS_[k] + "'>&nbsp;</td>";
-      }).join("") + "</tr></table></td>" +
       SOURCE_ORDER_.map(function (k) {
         return "<td style='" + td + "text-align:right;font-size:13px;color:" + (c.src[k] ? "#0f172a" : "#cbd5e1") + "'>" + (c.src[k] ? Math.round(c.src[k] / c.total * 100) + "%" : "\u2013") + "</td>";
       }).join("") + "</tr>";
