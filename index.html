@@ -1051,7 +1051,7 @@ function buildLeadReport_(rows, now) {
     if (li < 0 && h[q].indexOf("leadinfo source") === 0) li = q;
     if (cp < 0 && h[q].indexOf("campaign") === 0) cp = q;
   }
-  var ix = { company: h.indexOf("company"), country: h.indexOf("country"), date: h.indexOf("date added"),
+  var ix = { company: h.indexOf("company"), country: h.indexOf("country"), date: h.indexOf("first seen") >= 0 ? h.indexOf("first seen") : h.indexOf("date added"),
     status: h.indexOf("status"), source: h.indexOf("source"), li: li, cp: cp };
 
   // One entry per company: earliest date, Yeganeh wins, first filled lead source, closed only if every row is closed.
@@ -1104,7 +1104,7 @@ function renderLeadReport_(r) {
   var th = "padding:8px 6px;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.4px;";
   var td = "padding:9px 6px;font-size:14px;";
   var html = "<div style='background:#f1f5f9;padding:24px;" + font + "'><div style='max-width:680px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden'>" +
-    "<div style='background:linear-gradient(135deg,#004974,#1893A5 55%,#00C7E5);padding:20px 24px;color:#fff'>" +
+    "<div style='background-color:#004974;background-image:linear-gradient(135deg,#004974,#1893A5 55%,#00C7E5);padding:20px 24px;color:#fff'>" +
     "<div style='font-size:13px;opacity:.85'>ABN Lead Tracker \u00b7 Monthly report</div>" +
     "<div style='font-size:22px;font-weight:700'>" + r.monthLabel + "</div>" +
     "<div style='font-size:14px;margin-top:4px'><b>" + r.total + "</b> leads \u00b7 <b>+" + r.newCur + "</b> this month " +
