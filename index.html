@@ -264,11 +264,29 @@
   .camp-bar span { display: block; height: 100%; border-radius: 3px; }
   .camp-val { text-align: right; color: var(--abn-muted); font-size: 0.76rem; }
   .camp-val b { color: var(--abn-navy); font-family: var(--font-heading); }
-  .camp-sub { font-size: 0.74rem; color: var(--abn-muted); padding: 1px 0 1px 14px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-  .camp-sub-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; opacity: .7; }
-  .camp-sub-v { color: var(--abn-navy); }
-  .camp-sub-kw { color: var(--abn-muted); font-size: 0.7rem; margin-left: 4px; }
-  .camp-sub:last-of-type { margin-bottom: 4px; }
+  .camp-sub { margin: 2px 0 8px; border-left: 2px solid #eef2f4; padding-left: 12px; }
+  .camp-sub .camp-row { grid-template-columns: 198px 1fr 90px; padding: 3px 0; font-size: 0.76rem; }
+  .camp-sub .camp-name { color: #4b6573; }
+  .camp-sub .camp-bar { height: 7px; background: transparent; }
+  .camp-sub .camp-val { font-size: 0.72rem; }
+  .camp-chips { display: flex; flex-wrap: wrap; gap: 5px; padding: 2px 0 4px; margin-left: 210px; }
+  .camp-chip { font-size: 0.68rem; color: #4b6573; background: #f3f6f8; border-radius: 10px; padding: 2px 8px; white-space: nowrap; }
+  .camp-chip b { color: var(--abn-navy); font-weight: 600; }
+  @media (max-width: 760px) { .camp-chips { margin-left: 0; } }
+
+  /* ---------- Expanded country card ---------- */
+  #cardGrid .country-card { cursor: pointer; }
+  .card-expand { font-size: 0.8rem; color: #9aa9b1; margin-left: 6px; }
+  #cardGrid .country-card:hover .card-expand { color: var(--abn-navy); }
+  .card-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.5); display: flex; align-items: center; justify-content: center; z-index: 900; padding: 24px; }
+  .card-overlay .country-card { width: min(920px, 100%); max-height: 86vh; border-top-width: 4px; }
+  .card-overlay .card-header { cursor: default; padding: 18px 24px; }
+  .card-overlay .card-name { font-size: 1.15rem; }
+  .card-overlay .card-count { font-size: 0.85rem; padding: 3px 12px; }
+  .card-overlay .company-row { font-size: 0.95rem; padding: 12px 24px; gap: 14px; }
+  .card-overlay .company-status, .card-overlay .src-tag, .card-overlay .days-tag, .card-overlay .badge { font-size: 0.78rem; }
+  .card-close { border: 0; background: #eef2f4; color: #4b6573; border-radius: 50%; width: 30px; height: 30px; font-size: 1rem; cursor: pointer; margin-left: 12px; }
+  .card-close:hover { background: #dde5e9; }
   .camp-note { font-size: 0.72rem; color: var(--abn-muted); margin-top: 10px; }
   @media (max-width: 760px) {
     .source-section { padding: 0 16px; }
@@ -739,18 +757,22 @@ function liCategory(v) {
   if (s.includes("google ads")) return "Google Ads";
   return "Other";
 }
-function liBreakdownHtml(rows, color) {
+function liBreakdownHtml(rows, color, max) {
   const lc = rows.filter(x => /leadinfo/i.test(x.campaign || ""));
   if (!lc.length) return "";
   const cb = lc.filter(x => liCategory(x.liSource) === "Crunchbase").length;
   const liRows = lc.filter(x => liCategory(x.liSource) !== "Crunchbase");
   const kw = {};
   liRows.forEach(x => { const k = liCategory(x.liSource) || "Not found"; kw[k] = (kw[k] || 0) + 1; });
-  const kwTxt = Object.entries(kw).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${escapeHtml(k)} ${n}`).join(" · ");
-  const pct = n => (n / lc.length * 100).toFixed(0);
-  return `<div class="camp-sub"><span class="camp-sub-dot" style="background:${color}"></span>Crunchbase <span class="camp-sub-v">${pct(cb)}% · ${cb}</span></div>
-    <div class="camp-sub"><span class="camp-sub-dot" style="background:${color}"></span>Leadinfo <span class="camp-sub-v">${pct(liRows.length)}% · ${liRows.length}</span>
-      <span class="camp-sub-kw">${kwTxt}</span></div>`;
+  const chips = Object.entries(kw).sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `<span class="camp-chip">${escapeHtml(k)} <b>${n}</b></span>`).join("");
+  const subs = [["Leadinfo", liRows.length, chips], ["Crunchbase", cb, ""]].filter(x => x[1]).sort((a, b) => b[1] - a[1]);
+  return `<div class="camp-sub">${subs.map(([name, n, extra]) => `
+    <div class="camp-row">
+      <span class="camp-name">${name}</span>
+      <span class="camp-bar"><span style="width:${(n / max * 100).toFixed(1)}%;background:${color};opacity:.55"></span></span>
+      <span class="camp-val"><b>${(n / lc.length * 100).toFixed(0)}%</b> · ${n}</span>
+    </div>${extra ? `<div class="camp-chips">${extra}</div>` : ""}`).join("")}</div>`;
 }
 const SOURCE_LABELS = { Yeganeh: "Automated activities", Olivier: "Olivier's manual activities", Unassigned: "Unassigned" };
 const SOURCE_COLORS = { Yeganeh: "#ff6b9a", Olivier: "#6c5ce7", Unassigned: "#c9cfd3" };
@@ -801,7 +823,7 @@ function renderSource() {
           <span class="camp-name" title="${escapeAttr(name)}">${escapeHtml(name)}</span>
           <span class="camp-bar"><span style="width:${(n / max * 100).toFixed(1)}%;background:${countryColor(i)}"></span></span>
           <span class="camp-val"><b>${pct.toFixed(1)}%</b> · ${n}</span>
-        </div>${name === "Leadinfo + Crunchbase" ? liBreakdownHtml(yRows, countryColor(i)) : ""}`;
+        </div>${name === "Leadinfo + Crunchbase" ? liBreakdownHtml(yRows, countryColor(i), max) : ""}`;
       }).join("")
     : `<div class="camp-note">No Yeganeh leads${filters.country ? " in " + escapeHtml(filters.country) : ""}.</div>`;
 }
@@ -910,6 +932,7 @@ function renderCards() {
         <div class="card-title">
           <span class="card-swatch" style="background:${cColor}"></span>
           <span class="card-name" title="${escapeAttr(country)}">${escapeHtml(country)}</span>
+          <span class="card-expand" title="Expand">⤢</span>
         </div>
         <span class="card-count">${companies.length}</span>
       </div>
@@ -932,6 +955,7 @@ function renderCards() {
         <div class="card-title">
           <span class="card-swatch" style="background:#9aa5ab"></span>
           <span class="card-name">Closed</span>
+          <span class="card-expand" title="Expand">⤢</span>
         </div>
         <span class="card-count">${closedRows.length}</span>
       </div>
@@ -955,6 +979,24 @@ function escapeHtml(s) {
 function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
 
 document.getElementById("clearCountry").addEventListener("click", () => { filters.country = null; render(); });
+
+/* ---------- Expand a country card ---------- */
+function closeCardOverlay() { const o = document.querySelector(".card-overlay"); if (o) o.remove(); }
+document.getElementById("cardGrid").addEventListener("click", e => {
+  const card = e.target.closest(".country-card");
+  if (!card) return;
+  const ov = document.createElement("div");
+  ov.className = "card-overlay";
+  const big = card.cloneNode(true);
+  const btn = document.createElement("button");
+  btn.className = "card-close"; btn.title = "Close"; btn.textContent = "✕";
+  big.querySelector(".card-expand")?.remove();
+  big.querySelector(".card-header").appendChild(btn);
+  ov.appendChild(big);
+  ov.addEventListener("click", ev => { if (ev.target === ov || ev.target === btn) closeCardOverlay(); });
+  document.body.appendChild(ov);
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeCardOverlay(); });
 document.getElementById("searchBox").addEventListener("input", e => { filters.search = e.target.value; renderCards(); });
 document.getElementById("refreshBtn").addEventListener("click", fetchSheet);
 
