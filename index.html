@@ -984,13 +984,16 @@ function parseDate_(v) {
   return null;
 }
 
-/* 4 lead sources: Crunchbase, Leadinfo, Campaigns (Yeganeh's other campaigns), Manual (Olivier). */
-var SOURCE_ORDER_ = ["Crunchbase", "Leadinfo", "Campaigns", "Manual"];
-var SOURCE_COLORS_ = { "Crunchbase": "#dc2626", "Leadinfo": "#f97316", "Campaigns": "#ec4899", "Manual": "#7c5ce6" };
+/* Lead sources: from the "Leadinfo Source" column, else Yeganeh = Campaigns, Olivier = Manual. */
+var SOURCE_ORDER_ = ["Crunchbase", "Google Ads", "Blog post", "Campaigns", "Direct & Organic", "Manual"];
+var SOURCE_COLORS_ = { "Crunchbase": "#dc2626", "Google Ads": "#22c55e", "Blog post": "#f97316", "Campaigns": "#ec4899",
+  "Direct & Organic": "#0ea5e9", "Manual": "#7c5ce6" };
 function sourceCat_(e) {
-  var li = String(e.li || "").toLowerCase(), camp = String(e.camp || "").toLowerCase();
+  var li = String(e.li || "").toLowerCase();
   if (li.indexOf("crunchbase") >= 0) return "Crunchbase";
-  if (li || camp.indexOf("leadinfo") >= 0) return "Leadinfo";
+  if (li.indexOf("google ads") >= 0) return "Google Ads";
+  if (li.indexOf("blog") >= 0 || /[-\u2013\u2014]\s*ga\s*$/.test(li)) return "Blog post";
+  if (li.indexOf("direct") === 0 || li.indexOf("organic") >= 0) return "Direct & Organic";
   return e.source === "Yeganeh" ? "Campaigns" : "Manual";
 }
 
@@ -1101,7 +1104,7 @@ function renderLeadReport_(r) {
         return "<td style='" + td + "text-align:right;font-size:13px;color:" + (c.src[k] ? "#0f172a" : "#cbd5e1") + "'>" + (c.src[k] ? Math.round(c.src[k] / c.total * 100) + "%" : "\u2013") + "</td>";
       }).join("") + "</tr>";
   });
-  html += "</table><div style='font-size:11px;color:#94a3b8;margin-top:10px'>Leadinfo = blog posts, Google Ads, direct & organic visits. Campaigns = Yeganeh's other campaigns. Manual = Olivier. Closed leads are not counted.</div></div></div></div>";
+  html += "</table></div></div></div>";
   return html;
 }
 (function () {
