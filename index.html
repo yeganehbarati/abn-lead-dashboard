@@ -984,19 +984,14 @@ function parseDate_(v) {
   return null;
 }
 
-/* Lead source from the "Leadinfo Source" column; empty = Manual. */
-var SOURCE_ORDER_ = ["Crunchbase", "Blog post", "Google Ads", "Direct", "Organic", "Leadinfo (other)", "Manual"];
-var SOURCE_COLORS_ = { "Crunchbase": "#0ea5e9", "Blog post": "#f97316", "Google Ads": "#22c55e", "Direct": "#eab308",
-  "Organic": "#14b8a6", "Leadinfo (other)": "#64748b", "Manual": "#cbd5e1" };
-function sourceCat_(v) {
-  var s = String(v || "").trim().toLowerCase();
-  if (!s) return "Manual";
-  if (s.indexOf("crunchbase") >= 0) return "Crunchbase";
-  if (s.indexOf("blog") >= 0 || /[-\u2013\u2014]\s*ga\s*$/.test(s)) return "Blog post";
-  if (s.indexOf("google ads") >= 0) return "Google Ads";
-  if (s.indexOf("direct") === 0) return "Direct";
-  if (s.indexOf("organic") >= 0) return "Organic";
-  return "Leadinfo (other)";
+/* 4 lead sources: Crunchbase, Leadinfo, Campaigns (Yeganeh's other campaigns), Manual (Olivier). */
+var SOURCE_ORDER_ = ["Crunchbase", "Leadinfo", "Campaigns", "Manual"];
+var SOURCE_COLORS_ = { "Crunchbase": "#dc2626", "Leadinfo": "#f97316", "Campaigns": "#ec4899", "Manual": "#7c5ce6" };
+function sourceCat_(e) {
+  var li = String(e.li || "").toLowerCase(), camp = String(e.camp || "").toLowerCase();
+  if (li.indexOf("crunchbase") >= 0) return "Crunchbase";
+  if (li || camp.indexOf("leadinfo") >= 0) return "Leadinfo";
+  return e.source === "Yeganeh" ? "Campaigns" : "Manual";
 }
 
 function buildLeadReport_(rows, now) {
@@ -1006,10 +1001,13 @@ function buildLeadReport_(rows, now) {
     if (c.indexOf("company") >= 0 && c.indexOf("country") >= 0) { hi = i; h = c; break; }
   }
   if (hi < 0) return null;
-  var li = -1;
-  for (var q = 0; q < h.length; q++) if (h[q].indexOf("leadinfo source") === 0) { li = q; break; }
+  var li = -1, cp = -1;
+  for (var q = 0; q < h.length; q++) {
+    if (li < 0 && h[q].indexOf("leadinfo source") === 0) li = q;
+    if (cp < 0 && h[q].indexOf("campaign") === 0) cp = q;
+  }
   var ix = { company: h.indexOf("company"), country: h.indexOf("country"), date: h.indexOf("date added"),
-    status: h.indexOf("status"), source: h.indexOf("source"), li: li };
+    status: h.indexOf("status"), source: h.indexOf("source"), li: li, cp: cp };
 
   // One entry per company: earliest date, Yeganeh wins, first filled lead source, closed only if every row is closed.
   var map = {};
@@ -1021,12 +1019,14 @@ function buildLeadReport_(rows, now) {
     var src = String(row[ix.source] || "").trim().toLowerCase().indexOf("yeganeh") === 0 ? "Yeganeh" : "Olivier";
     var closed = String(row[ix.status] || "").trim().toLowerCase() === "closed";
     var lis = ix.li >= 0 ? String(row[ix.li] || "").trim() : "";
+    var camp = ix.cp >= 0 ? String(row[ix.cp] || "").trim() : "";
     var e = map[key];
-    if (!e) { map[key] = { country: country, date: d, source: src, closed: closed, li: lis }; continue; }
+    if (!e) { map[key] = { country: country, date: d, source: src, closed: closed, li: lis, camp: camp }; continue; }
     if (d && (!e.date || d < e.date)) e.date = d;
     if (src === "Yeganeh") e.source = "Yeganeh";
     if (!closed) e.closed = false;
     if (!e.li) e.li = lis;
+    if (!e.camp || (src === "Yeganeh" && camp)) e.camp = camp || e.camp;
   }
 
   var endCur = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -1037,7 +1037,7 @@ function buildLeadReport_(rows, now) {
     var e = map[k];
     if (e.closed || !e.date || e.date >= endCur) return;
     var c = countries[e.country] || (countries[e.country] = { name: e.country, total: 0, newCur: 0, yNew: 0, oNew: 0, src: {} });
-    var cat = sourceCat_(e.li);
+    var cat = sourceCat_(e);
     c.total++; t.total++; c.src[cat] = (c.src[cat] || 0) + 1;
     if (e.date < endPrev) t.prev++;
     else { c.newCur++; t.newCur++; if (e.source === "Yeganeh") { c.yNew++; t.yNew++; } else { c.oNew++; t.oNew++; } }
@@ -1087,21 +1087,21 @@ function renderLeadReport_(r) {
     "<td style='" + td + "text-align:right;font-weight:700;color:#6d28d9'>" + r.oNew + "</td></tr></table></div>";
 
   // 2. Lead sources per country
-  html += "<div style='padding:18px 24px 24px'><div style='font-size:16px;font-weight:700;color:#0f172a;margin-bottom:4px'>Lead sources per country</div>" +
-    "<div style='font-size:12px;color:#64748b;margin-bottom:10px'>" + SOURCE_ORDER_.map(function (k) {
-      return "<span style='white-space:nowrap;margin-right:10px'><span style='display:inline-block;width:9px;height:9px;border-radius:2px;background:" + SOURCE_COLORS_[k] + ";margin-right:4px'></span>" + k + "</span>";
-    }).join("") + "</div>";
+  html += "<div style='padding:18px 24px 24px'><div style='font-size:16px;font-weight:700;color:#0f172a;margin-bottom:6px'>Lead sources per country</div>" +
+    "<table style='width:100%;border-collapse:collapse;color:#334155'><tr><td style='" + th + "'>Country</td><td style='" + th + "width:34%'></td>" +
+    SOURCE_ORDER_.map(function (k) { return "<td style='" + th + "text-align:right;color:" + SOURCE_COLORS_[k] + "'>" + k + "</td>"; }).join("") + "</tr>";
   r.list.forEach(function (c) {
-    var parts = SOURCE_ORDER_.filter(function (k) { return c.src[k]; }).map(function (k) {
-      return { k: k, n: c.src[k], p: Math.round(c.src[k] / c.total * 100) };
-    });
-    html += "<div style='padding:8px 0;border-top:1px solid #f1f5f9'>" +
-      "<div style='font-size:14px;font-weight:600;color:#0f172a'>" + c.name + " <span style='color:#94a3b8;font-weight:400'>(" + c.total + ")</span></div>" +
-      "<table style='width:100%;border-collapse:collapse;margin:5px 0'><tr>" +
-      parts.map(function (x) { return "<td style='height:8px;padding:0;font-size:0;line-height:0;width:" + (x.n / c.total * 100).toFixed(1) + "%;background:" + SOURCE_COLORS_[x.k] + "'>&nbsp;</td>"; }).join("") + "</tr></table>" +
-      "<div style='font-size:12px;color:#475569'>" + parts.map(function (x) { return x.k + " <b>" + x.p + "%</b>"; }).join(" \u00b7 ") + "</div></div>";
+    html += "<tr style='border-top:1px solid #f1f5f9'><td style='" + td + "font-weight:600;color:#0f172a;white-space:nowrap'>" + c.name +
+      " <span style='color:#94a3b8;font-weight:400;font-size:12px'>" + c.total + "</span></td>" +
+      "<td style='" + td + "'><table style='width:100%;border-collapse:collapse'><tr>" +
+      SOURCE_ORDER_.filter(function (k) { return c.src[k]; }).map(function (k) {
+        return "<td style='height:8px;padding:0;font-size:0;line-height:0;width:" + (c.src[k] / c.total * 100).toFixed(1) + "%;background:" + SOURCE_COLORS_[k] + "'>&nbsp;</td>";
+      }).join("") + "</tr></table></td>" +
+      SOURCE_ORDER_.map(function (k) {
+        return "<td style='" + td + "text-align:right;font-size:13px;color:" + (c.src[k] ? "#0f172a" : "#cbd5e1") + "'>" + (c.src[k] ? Math.round(c.src[k] / c.total * 100) + "%" : "\u2013") + "</td>";
+      }).join("") + "</tr>";
   });
-  html += "<div style='font-size:11px;color:#94a3b8;margin-top:10px'>Source comes from the \u201cLeadinfo Source\u201d column; empty = Manual. Closed leads are not counted.</div></div></div></div>";
+  html += "</table><div style='font-size:11px;color:#94a3b8;margin-top:10px'>Leadinfo = blog posts, Google Ads, direct & organic visits. Campaigns = Yeganeh's other campaigns. Manual = Olivier. Closed leads are not counted.</div></div></div></div>";
   return html;
 }
 (function () {
